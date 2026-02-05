@@ -37,6 +37,18 @@ async function handleApi(request, env, url) {
         const { results } = await env.DB.prepare("SELECT * FROM clients ORDER BY id DESC").all();
         return Response.json({ clients: results });
     }
+
+    // New Client Creation API
+    if (url.pathname === '/api/create-client') {
+        const { name, token } = await request.json();
+        // Insert and return success
+        try {
+            await env.DB.prepare("INSERT INTO clients (name, bot_token) VALUES (?, ?)").bind(name, token).run();
+            return Response.json({ success: true });
+        } catch (e) {
+            return Response.json({ error: "Token already exists" }, { status: 400 });
+        }
+    }
     
     if (url.pathname === '/api/topup') {
         const { id, amount } = await request.json();
@@ -58,12 +70,11 @@ async function handleApi(request, env, url) {
         return new Response(await tgRes.text());
     }
 
-    // Broadcast (Simplified: Sends to all authorized users found in logs/auth table)
+    // Broadcast
     if (url.pathname === '/api/broadcast') {
         const { message } = await request.json();
         const { results } = await env.DB.prepare("SELECT DISTINCT c.bot_token, a.telegram_user_id FROM authorized_users a JOIN clients c ON a.client_id = c.id").all();
         
-        // Use ctx.waitUntil in production for non-blocking
         for (const row of results) {
             await sendMessage(row.bot_token, row.telegram_user_id, `📢 <b>System Message:</b>\n${message}`);
         }

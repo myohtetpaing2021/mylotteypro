@@ -1,4 +1,3 @@
-// src/admin.html.js
 export const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -16,9 +15,7 @@ export const html = `
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
-        /* Custom Scrollbar for mobile optimization */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        [x-cloak] { display: none !important; }
     </style>
 </head>
 <body x-data="app()" x-init="fetchClients()">
@@ -84,6 +81,27 @@ export const html = `
         </div>
     </main>
 
+    <div x-show="showAddModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" @click.self="showAddModal = false">
+        <div class="glass p-6 rounded-xl w-full max-w-md mx-4 space-y-4 bg-slate-900">
+            <h2 class="text-xl font-bold">Add New Client</h2>
+            
+            <div>
+                <label class="block text-sm text-gray-400 mb-1">Client Name</label>
+                <input x-model="newClient.name" type="text" class="w-full bg-slate-800 rounded p-2 text-white border border-slate-700 focus:border-blue-500 focus:outline-none">
+            </div>
+
+            <div>
+                <label class="block text-sm text-gray-400 mb-1">Bot Token</label>
+                <input x-model="newClient.token" type="text" placeholder="12345:ABC..." class="w-full bg-slate-800 rounded p-2 text-white border border-slate-700 focus:border-blue-500 focus:outline-none">
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button @click="showAddModal = false" class="flex-1 px-4 py-2 rounded bg-slate-700 hover:bg-slate-600">Cancel</button>
+                <button @click="createClient()" :disabled="!newClient.name || !newClient.token" class="flex-1 px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50">Create</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         function app() {
             return {
@@ -96,17 +114,42 @@ export const html = `
                 ],
                 broadcastMsg: '',
                 sending: false,
-                adminKey: '', 
+                adminKey: '',
+                showAddModal: false,
+                newClient: { name: '', token: '' },
 
                 async fetchClients() {
-                    const key = prompt("Enter Admin Password:");
+                    const key = localStorage.getItem('adminKey') || prompt("Enter Admin Password:");
                     if(!key) return;
                     this.adminKey = key;
+                    localStorage.setItem('adminKey', key);
                     
-                    const res = await fetch('/api/clients', { headers: { 'X-Admin-Key': this.adminKey } });
-                    const data = await res.json();
-                    this.clients = data.clients;
-                    this.stats[0].value = data.clients.length;
+                    try {
+                        const res = await fetch('/api/clients', { headers: { 'X-Admin-Key': this.adminKey } });
+                        if(res.status === 401) {
+                            localStorage.removeItem('adminKey');
+                            alert("Invalid Password");
+                            location.reload();
+                            return;
+                        }
+                        const data = await res.json();
+                        this.clients = data.clients;
+                        this.stats[0].value = data.clients.length;
+                    } catch(e) { console.error(e); }
+                },
+
+                async createClient() {
+                    if(!this.newClient.name || !this.newClient.token) return;
+                    
+                    await fetch('/api/create-client', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Admin-Key': this.adminKey },
+                        body: JSON.stringify(this.newClient)
+                    });
+                    
+                    this.showAddModal = false;
+                    this.newClient = { name: '', token: '' };
+                    this.fetchClients();
                 },
                 
                 async topUp(id) {
