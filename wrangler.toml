@@ -1,0 +1,8 @@
+name = "2d3d-saas-bot"
+main = "src/index.js"
+compatibility_date = "2024-02-05"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bot-db"
+database_id = "b461bf05-18d1-46b4-a81e-6a61e83855bf" # Will get this from Cloud Shell
