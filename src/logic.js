@@ -1,19 +1,23 @@
 export const Logic = {
     calculate2D(inputText) {
-        // --- 1. Keywords & Counts ---
-        const DATA_SETS = {
+        // --- CONSTANTS & SETS ---
+        const SET_COUNTS = {
             'ပါဝါ': 10, 'Power': 10,
             'နက္ခတ်': 10, 'NatKhat': 10,
             'ညီအစ်ကို': 20, 'Brother': 20,
-            'အပူး': 10, 'စုံပူး': 5, 'မပူး': 5,
-            'ပဒေသာ': 32 // Standard 2D Padeythar
+            'အပူး': 10, 'Apu': 10,
+            'စုံပူး': 5,
+            'မပူး': 5,
+            'ပဒေသာ': 32 // Based on your request (16 pairs x 2)
         };
 
+        // Helper: Parse Number (Remove commas)
         function parseAmount(str) {
             if (!str) return 0;
             return parseInt(str.replace(/,/g, ''));
         }
 
+        // Helper: Format Money
         function formatMoney(num) {
             return new Intl.NumberFormat('en-US').format(num);
         }
@@ -26,34 +30,39 @@ export const Logic = {
         lines.forEach((line) => {
             line = line.trim();
             if (!line) return;
+
+            // 1. Clean the line: Remove T=..., Total=... and comments
+            // Explains: "25 - 2500R2000 T=4500" becomes "25 - 2500R2000"
+            let cleanLine = line.replace(/T\s*=\s*[\d,]+/ig, '')
+                                .replace(/Total\s*=\s*[\d,]+/ig, '')
+                                .trim();
             
-            // Comment ဖြတ်ထုတ်ခြင်း
-            let cleanLine = line.split(/T\s*=/i)[0].trim();
             let result = null;
 
             try {
-                // --- A. Keyword Sets (Power, NatKhat, etc.) ---
-                // Format: "ပါဝါ - 100" or "ပါဝါ 100"
-                for (const [key, count] of Object.entries(DATA_SETS)) {
-                    // Regex checks for Start of string or distinct word
+                // --- A. Named Sets (Power, NatKhat, Padeythar etc.) ---
+                // Matches: "ပါဝါ 100", "Power - 100"
+                for (const [key, count] of Object.entries(SET_COUNTS)) {
                     const regex = new RegExp(`^${key}\s*[-]?\s*([\d,]+)`, 'i');
                     const match = cleanLine.match(regex);
                     if (match) {
                         const amount = parseAmount(match[1]);
-                        result = { description: key, calculation: `${count} x ${amount}`, totalAmt: count * amount };
+                        result = { 
+                            description: key, 
+                            calculation: `${count} x ${amount}`, 
+                            totalAmt: count * amount 
+                        };
                         break;
                     }
                 }
 
                 // --- B. Brake (ဘရိတ်) ---
-                // Format: "1 B - 100" or "2/7/4 B - 100"
+                // Matches: "1 B 100", "2/7/4 B 100"
                 if (!result) {
-                    // Regex looks for digits/slashes before 'B' or 'ဘရိတ်'
                     let match = cleanLine.match(/^([\d\/]+)\s*(?:B|b|ဘရိတ်)\s*[-]?\s*([\d,]+)/);
                     if (match) {
-                        // Split by '/' to count how many brakes (e.g. 2/7/4 = 3 brakes)
                         const brakes = match[1].split('/').filter(s => s.trim() !== '');
-                        const brakeCount = brakes.length;
+                        const brakeCount = brakes.length; // Each brake has 10 numbers
                         const amount = parseAmount(match[2]);
                         const totalNums = brakeCount * 10;
                         
@@ -66,17 +75,18 @@ export const Logic = {
                 }
 
                 // --- C. Round (ပတ်) ---
-                // Format: "1 P 100" or "1 ပတ် 100"
+                // Matches: "1 P 100", "1 ပတ် 100"
                 if (!result) {
                     let match = cleanLine.match(/^(\d)\s*(?:P|p|ပတ်)\s*[-]?\s*([\d,]+)/);
                     if (match) {
                         const amount = parseAmount(match[2]);
+                        // Round always has 19 numbers
                         result = { description: `${match[1]} Round`, calculation: `19 x ${amount}`, totalAmt: 19 * amount };
                     }
                 }
 
                 // --- D. Head/Tail (ထိပ်/နောက်) ---
-                // Format: "1 H 100", "1 ထိပ် 100"
+                // Matches: "1 H 100", "1 ထိပ် 100", "1 နောက် 100"
                 if (!result) {
                     let match = cleanLine.match(/^(\d)\s*(ထိပ်|နောက်|Head|Tail|H|T)\s*[-]?\s*([\d,]+)/i);
                     if (match) {
@@ -87,25 +97,19 @@ export const Logic = {
                     }
                 }
 
-                // --- E. Khway (ခွေ) ---
-                // Format: "012 အပူးခွေ 100", "01234 Khway 100"
+                // --- E. Khway (ခွေ) with Apu Logic ---
+                // Matches: "012 အပူးခွေ 100", "01234 Khway 100"
                 if (!result) {
                     let match = cleanLine.match(/^(\d+)\s*(.*)(?:ခွေ|Khway)\s*[-]?\s*([\d,]+)/i);
                     if (match) {
                         const digits = match[1];
                         const amount = parseAmount(match[3]);
-                        const context = match[2]; // e.g., "အပူး"
                         
-                        let count = 0;
-                        // If "အပူး" (Apu) is present, use N * N (includes doubles: 00, 11)
-                        if (context.includes('အပူး') || context.includes('Power')) {
-                             count = digits.length * digits.length;
-                        } else {
-                             // Standard Khway usually means N * (N-1) (Permutation without doubles)
-                             // But based on your input "01234 အပူးခွေ", user wants the Apu version.
-                             // Defaulting to Apu logic if keyword not strictly 'Ma Apu'
-                             count = digits.length * digits.length; 
-                        }
+                        // User logic: N * N (Includes doubles)
+                        // 012 = 3*3 = 9
+                        // 0123 = 4*4 = 16
+                        // 01234 = 5*5 = 25
+                        const count = digits.length * digits.length;
 
                         result = { 
                             description: `${digits} Khway`, 
@@ -115,10 +119,9 @@ export const Logic = {
                     }
                 }
 
-                // --- F. Direct & Reverse with R (R Amount) ---
-                // Format: "25 - 2500R2000" (Tight spacing) or "25 - 2500 R 2000"
+                // --- F. Direct & Reverse with R (Specific Amounts) ---
+                // Matches: "25 - 2500R2000" or "25 2500 R 2000"
                 if (!result) {
-                    // This regex allows no space between Amount and R
                     let match = cleanLine.match(/^(\d{2})\s*[-]?\s*([\d,]+)\s*R\s*([\d,]+)/i);
                     if (match) {
                         let num = match[1];
@@ -129,7 +132,7 @@ export const Logic = {
                         let desc = num;
                         let calc = `${directAmt}`;
 
-                        // If not a double (e.g. 25), add reverse amount
+                        // Only add reverse cost if it's not a double (e.g., 25 has reverse 52. 22 has no reverse)
                         if (num[0] !== num[1]) {
                             total += reverseAmt;
                             desc += ' + R';
@@ -140,18 +143,42 @@ export const Logic = {
                     }
                 }
 
-                // --- G. Simple Direct List ---
-                // Format: "12 - 100", "12 34 - 100"
+                // --- G. List with R (Group Betting) ---
+                // Matches: "79 91 95 71 75 R 1000"
+                if (!result && /R\s*[\d,]+$/.test(cleanLine)) {
+                     let match = cleanLine.match(/^(.*)\s+R\s*([\d,]+)$/i);
+                     if (match) {
+                         const numsPart = match[1];
+                         const amount = parseAmount(match[2]);
+                         const nums = numsPart.match(/\d{2}/g); // Find all 2-digit numbers
+                         
+                         if (nums && nums.length > 0) {
+                             let totalCount = 0;
+                             nums.forEach(n => {
+                                 if (n[0] === n[1]) totalCount += 1; // Double = 1x
+                                 else totalCount += 2; // Non-double = 2x (Direct + Reverse)
+                             });
+                             
+                             result = { 
+                                 description: `${nums.length} Pairs + R`, 
+                                 calculation: `${totalCount} x ${amount}`, 
+                                 totalAmt: totalCount * amount 
+                             };
+                         }
+                     }
+                }
+
+                // --- H. Simple Direct List (Standard) ---
+                // Matches: "12 - 100", "12 34 56 100"
                 if (!result) {
                     let match = cleanLine.match(/^([\d\s\.\/]+)\s*[-]?\s*([\d,]+)$/);
                     if (match) {
-                        // Extract numbers (2 digits)
                         const nums = match[1].match(/\d{2}/g);
                         const amount = parseAmount(match[2]);
                         
                         if (nums && nums.length > 0) {
                             result = { 
-                                description: nums.join(','), 
+                                description: nums.join(', '), 
                                 calculation: `${nums.length} x ${amount}`, 
                                 totalAmt: nums.length * amount 
                             };
@@ -165,9 +192,6 @@ export const Logic = {
                 grandTotal += result.totalAmt;
                 validLineCount++;
                 outputText += `✅ <b>${result.description}</b>\n   └ <code>${result.calculation}</code> = ${formatMoney(result.totalAmt)}\n`;
-            } else {
-                // Debugging: Uncomment to see failed lines
-                // outputText += `❌ Invalid: ${line}\n`;
             }
         });
 
@@ -179,12 +203,11 @@ export const Logic = {
         return outputText;
     },
 
-    // --- 3D Logic (Unchanged - Keeps existing features) ---
+    // --- 3D Logic (Preserved) ---
     calculate3D(rawText) {
         const lines = rawText.split(/\n/);
         let totalAmount = 0;
         let breakdown = [];
-        
         const permCache = {};
         function getPermutations(numStr) {
             if(permCache[numStr]) return permCache[numStr];
@@ -212,136 +235,72 @@ export const Logic = {
             permCache[numStr] = results;
             return results;
         }
-
         for(let i=0; i < lines.length; i++) {
             let line = lines[i].trim();
             if (!line) continue;
             if (line.toLowerCase().startsWith('t=') || line.toLowerCase().startsWith('total')) continue;
-
             let normalized = line.replace(/\s+/g, ' '); 
             let parts, numbersPart = "", amountPart = "";
-            
-            if (normalized.includes('-')) {
-                parts = normalized.split('-');
-            } else if (normalized.includes(' R ')) {
-                let rIndex = normalized.indexOf(' R ');
-                parts = [normalized.substring(0, rIndex), "R " + normalized.substring(rIndex + 3)];
-            } else {
-                parts = [normalized];
-            }
-
+            if (normalized.includes('-')) { parts = normalized.split('-'); } 
+            else if (normalized.includes(' R ')) { let rIndex = normalized.indexOf(' R '); parts = [normalized.substring(0, rIndex), "R " + normalized.substring(rIndex + 3)]; } 
+            else { parts = [normalized]; }
             numbersPart = parts[0] ? parts[0].trim() : "";
             amountPart = parts[1] ? parts[1].trim() : "";
-
-            if (!amountPart && numbersPart.toUpperCase().includes('R')) {
-                let match = numbersPart.match(/^([\d\s]+)\s(R|r)\s*(\d+)$/);
-                if (match) {
-                    numbersPart = match[1];
-                    amountPart = 'R ' + match[3];
-                }
-            }
-
+            if (!amountPart && numbersPart.toUpperCase().includes('R')) { let match = numbersPart.match(/^([\d\s]+)\s(R|r)\s*(\d+)$/); if (match) { numbersPart = match[1]; amountPart = 'R ' + match[3]; } }
             if (!numbersPart || !amountPart) continue;
-
             let numbers = numbersPart.match(/\d{2,3}/g);
             if (!numbers) continue;
-
             let directAmt = 0, rAmt = 0;
             let cleanAmount = amountPart.replace(/T=.*$/i, '').replace(/Total.*$/i, '').trim();
-
-            if (cleanAmount.toUpperCase().includes('R')) {
-                let amtParts = cleanAmount.toUpperCase().split('R');
-                let left = amtParts[0].trim();
-                let right = amtParts[1].trim();
-                if (left) directAmt = parseInt(left) || 0;
-                if (right) rAmt = parseInt(right) || 0;
-            } else {
-                directAmt = parseInt(cleanAmount.replace(/[^\d]/g, '')) || 0;
-            }
-
+            if (cleanAmount.toUpperCase().includes('R')) { let amtParts = cleanAmount.toUpperCase().split('R'); let left = amtParts[0].trim(); let right = amtParts[1].trim(); if (left) directAmt = parseInt(left) || 0; if (right) rAmt = parseInt(right) || 0; } else { directAmt = parseInt(cleanAmount.replace(/[^\d]/g, '')) || 0; }
             for(let j=0; j < numbers.length; j++) {
                 let num = numbers[j];
-                if (directAmt > 0) {
-                    totalAmount += directAmt;
-                    breakdown.push({ num: num, amount: directAmt, type: 'Direct' });
-                }
-
-                if (rAmt > 0) {
-                    let perms = getPermutations(num);
-                    let permsToBet = (directAmt > 0) ? perms.filter(p => p !== num) : perms;
-                    
-                    permsToBet.forEach(p => {
-                        totalAmount += rAmt;
-                        breakdown.push({ num: p, amount: rAmt, type: 'R (' + num + ')' });
-                    });
-                }
+                if (directAmt > 0) { totalAmount += directAmt; breakdown.push({ num: num, amount: directAmt, type: 'Direct' }); }
+                if (rAmt > 0) { let perms = getPermutations(num); let permsToBet = (directAmt > 0) ? perms.filter(p => p !== num) : perms; permsToBet.forEach(p => { totalAmount += rAmt; breakdown.push({ num: p, amount: rAmt, type: 'R (' + num + ')' }); }); }
             }
         }
-
         let responseText = `<b>🧮 3D Calculator Result</b>\n\n`;
         responseText += `<pre>`;
         responseText += `Num   |   Amount | Type\n`;
         responseText += `------|----------|------\n`;
-        
         const itemsToShow = breakdown.slice(0, 25);
-        itemsToShow.forEach(item => {
-            const num = item.num.padEnd(5, ' ');
-            const amt = item.amount.toLocaleString().padStart(8, ' ');
-            const type = item.type === 'Direct' ? 'Dir' : 'R';
-            responseText += `${num} | ${amt} | ${type}\n`;
-        });
-        
+        itemsToShow.forEach(item => { const num = item.num.padEnd(5, ' '); const amt = item.amount.toLocaleString().padStart(8, ' '); const type = item.type === 'Direct' ? 'Dir' : 'R'; responseText += `${num} | ${amt} | ${type}\n`; });
         responseText += `</pre>`;
         if (breakdown.length > 25) responseText += `<i>... and ${breakdown.length - 25} more items</i>\n`;
-        
         responseText += `\n══════════════════\n`;
         responseText += `<b>Grand Total: ${totalAmount.toLocaleString()} MMK</b>\n`;
         responseText += `Items Count: ${breakdown.length}`;
-        
         return responseText;
     },
 
-    // --- Report Logic (Unchanged) ---
+    // --- Report Logic (Preserved) ---
     calculateReport(inputText, commissionRate = 13) {
         const lines = inputText.split(/\r?\n/);
         let bets = new Array(10).fill(0);
         let ps = new Array(10).fill(0);
         const RATIO = 80;
         let hasData = false;
-
         lines.forEach((line) => {
             line = line.trim();
             if (!line) return;
             const match = line.match(/^(\d+)\.\s*(\d+)\s*(.*)$/);
-
             if (match) {
                 const index = parseInt(match[1]) - 1;
                 const bet = parseFloat(match[2]) || 0;
                 let p = 0;
                 const rest = match[3].toLowerCase();
-                if (rest.includes('p')) {
-                    const pMatch = rest.match(/p\.?\s*(\d+)/);
-                    if (pMatch) p = parseFloat(pMatch[1]) || 0;
-                }
-                if (index >= 0 && index < 10) {
-                    bets[index] = bet;
-                    ps[index] = p;
-                    hasData = true;
-                }
+                if (rest.includes('p')) { const pMatch = rest.match(/p\.?\s*(\d+)/); if (pMatch) p = parseFloat(pMatch[1]) || 0; }
+                if (index >= 0 && index < 10) { bets[index] = bet; ps[index] = p; hasData = true; }
             }
         });
-
         if (!hasData) return "⚠️ Data format incorrect. Use: 1. 1000 P.100";
-
         let totalBet = bets.reduce((a, b) => a + b, 0);
         let totalP = ps.reduce((a, b) => a + b, 0);
         const net = totalBet - (totalBet * (commissionRate / 100));
         const payout = totalP * RATIO;
         const profit = net - payout;
-        
         function format(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
         const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
-
         let report = `<b>📊 LOTTERY REPORT</b>\n`;
         report += `📅 ${now}\n`;
         report += `--------------------------------\n`;
@@ -350,12 +309,8 @@ export const Logic = {
         report += `<b>📉 Net (${commissionRate}%):</b> ${format(Math.round(net))}\n`;
         report += `<b>💸 Payout (x${RATIO}):</b> ${format(Math.round(payout))}\n`;
         report += `--------------------------------\n\n`;
-        
-        if (profit >= 0) {
-            report += `<b>✅ PROFIT: +${format(Math.round(profit))} Ks</b>\n`;
-        } else {
-            report += `<b>❌ LOSS: ${format(Math.round(profit))} Ks</b>\n`;
-        }
+        if (profit >= 0) { report += `<b>✅ PROFIT: +${format(Math.round(profit))} Ks</b>\n`; } 
+        else { report += `<b>❌ LOSS: ${format(Math.round(profit))} Ks</b>\n`; }
         return report;
     }
 };
