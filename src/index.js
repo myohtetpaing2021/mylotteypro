@@ -21,7 +21,6 @@ export default {
         }
 
         // --- WEBHOOK ROUTE (Multi-Tenant) ---
-        // URL Format: https://worker.dev/webhook/<BOT_TOKEN>
         if (request.method === 'POST' && url.pathname.startsWith('/webhook/')) {
             const token = url.pathname.split('/')[2];
             return handleTelegramWebhook(request, env, token);
@@ -32,34 +31,46 @@ export default {
 };
 
 async function handleApi(request, env, url) {
-    // Basic API implementation for Dashboard
+    const corsHeaders = {
+      "Content-Type": "application/json"
+    };
+
     if (url.pathname === '/api/clients') {
-        const { results } = await env.DB.prepare("SELECT * FROM clients ORDER BY id DESC").all();
-        return Response.json({ clients: results });
+        try {
+            const { results } = await env.DB.prepare("SELECT * FROM clients ORDER BY id DESC").all();
+            return new Response(JSON.stringify({ clients: results }), { headers: corsHeaders });
+        } catch (e) {
+            return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
+        }
     }
 
-    // New Client Creation API
     if (url.pathname === '/api/create-client') {
         const { name, token } = await request.json();
-        // Insert and return success
+        if (!name || !token) {
+             return new Response(JSON.stringify({ error: "Name and Token required" }), { status: 400, headers: corsHeaders });
+        }
         try {
             await env.DB.prepare("INSERT INTO clients (name, bot_token) VALUES (?, ?)").bind(name, token).run();
-            return Response.json({ success: true });
+            return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
         } catch (e) {
-            return Response.json({ error: "Token already exists" }, { status: 400 });
+            // Check for unique constraint violation
+            if (e.message.includes('UNIQUE')) {
+                 return new Response(JSON.stringify({ error: "This Bot Token is already registered." }), { status: 400, headers: corsHeaders });
+            }
+            return new Response(JSON.stringify({ error: "Database Error: " + e.message }), { status: 500, headers: corsHeaders });
         }
     }
     
     if (url.pathname === '/api/topup') {
         const { id, amount } = await request.json();
         await env.DB.prepare("UPDATE clients SET credits = credits + ? WHERE id = ?").bind(amount, id).run();
-        return Response.json({ success: true });
+        return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
 
     if (url.pathname === '/api/commission') {
         const { id, rate } = await request.json();
         await env.DB.prepare("UPDATE clients SET commission_rate = ? WHERE id = ?").bind(rate, id).run();
-        return Response.json({ success: true });
+        return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
 
     if (url.pathname === '/api/webhook-link') {
@@ -67,10 +78,9 @@ async function handleApi(request, env, url) {
         const workerUrl = new URL(request.url).origin;
         const webhookUrl = `${workerUrl}/webhook/${token}`;
         const tgRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${webhookUrl}`);
-        return new Response(await tgRes.text());
+        return new Response(await tgRes.text(), { headers: corsHeaders });
     }
 
-    // Broadcast
     if (url.pathname === '/api/broadcast') {
         const { message } = await request.json();
         const { results } = await env.DB.prepare("SELECT DISTINCT c.bot_token, a.telegram_user_id FROM authorized_users a JOIN clients c ON a.client_id = c.id").all();
@@ -78,7 +88,7 @@ async function handleApi(request, env, url) {
         for (const row of results) {
             await sendMessage(row.bot_token, row.telegram_user_id, `📢 <b>System Message:</b>\n${message}`);
         }
-        return Response.json({ success: true, count: results.length });
+        return new Response(JSON.stringify({ success: true, count: results.length }), { headers: corsHeaders });
     }
 }
 
@@ -91,7 +101,6 @@ async function handleTelegramWebhook(request, env, token) {
         const userId = update.message.from.id;
         const text = update.message.text;
 
-        // 1. Identify Client
         const client = await env.DB.prepare("SELECT * FROM clients WHERE bot_token = ?").bind(token).first();
         if (!client) return new Response('Client Not Found', { status: 404 });
         
@@ -100,21 +109,17 @@ async function handleTelegramWebhook(request, env, token) {
              return new Response('OK');
         }
 
-        // 2. Security: First User Lock / Whitelist
         let authUser = await env.DB.prepare("SELECT * FROM authorized_users WHERE client_id = ?").bind(client.id).first();
         
         if (!authUser) {
-            // No user yet, lock to this first user
             await env.DB.prepare("INSERT INTO authorized_users (client_id, telegram_user_id, username) VALUES (?, ?, ?)")
                 .bind(client.id, userId, update.message.from.username || 'Unknown').run();
             await sendMessage(token, chatId, "🔒 Device Registered. You are now the owner of this bot.");
         } else if (authUser.telegram_user_id !== userId) {
-            // Unauthorized access block
             await sendMessage(token, chatId, "🚫 Unauthorized Access. This bot is locked to another user.");
             return new Response('OK');
         }
 
-        // 3. Command Routing
         if (text === '/start') {
             const msg = `👋 <b>2D3D Calculator Pro မှ ကြိုဆိုပါတယ်။</b>\n\n💰 လက်ကျန် Credit: <b>${client.credits}</b> Points\n💎 Usage Cost: <b>${USAGE_COST}</b> Points/Time\n\nသင်သည် Authorized User ဖြစ်ပါသည်။\n\n<b>အသုံးပြုပုံ:</b>\n/2d [စာရင်းများ] - 2D တွက်ရန်\n/3d [စာရင်းများ] - 3D တွက်ရန်\n/report - LOTTERY REPORT\n/balance - Check Credits`;
             await sendMessage(token, chatId, msg);
@@ -126,7 +131,6 @@ async function handleTelegramWebhook(request, env, token) {
              return new Response('OK');
         }
 
-        // 4. Credit Check & Processing
         if (client.credits < USAGE_COST) {
             await sendMessage(token, chatId, "⚠️ <b>Insufficient Credits.</b>\nPlease contact admin to top-up.");
             return new Response('OK');
@@ -157,9 +161,7 @@ async function handleTelegramWebhook(request, env, token) {
              } else responseText = "Please paste list after /report";
         }
 
-        // 5. Deduct & Reply
         if (responseText && commandType) {
-            // Transaction
             await env.DB.batch([
                 env.DB.prepare("UPDATE clients SET credits = credits - ? WHERE id = ?").bind(USAGE_COST, client.id),
                 env.DB.prepare("INSERT INTO usage_logs (client_id, telegram_user_id, command_type, cost) VALUES (?, ?, ?, ?)").bind(client.id, userId, commandType, USAGE_COST)
@@ -167,7 +169,6 @@ async function handleTelegramWebhook(request, env, token) {
             
             await sendMessage(token, chatId, responseText);
         } else if (responseText) {
-            // Just an error message, no deduction
             await sendMessage(token, chatId, responseText);
         }
 
