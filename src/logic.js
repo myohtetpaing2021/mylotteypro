@@ -8,16 +8,14 @@ export const Logic = {
             'အပူး': 10, 'Apu': 10,
             'စုံပူး': 5,
             'မပူး': 5,
-            'ပဒေသာ': 32 // Based on your request (16 pairs x 2)
+            'ပဒေသာ': 32
         };
 
-        // Helper: Parse Number (Remove commas)
         function parseAmount(str) {
             if (!str) return 0;
             return parseInt(str.replace(/,/g, ''));
         }
 
-        // Helper: Format Money
         function formatMoney(num) {
             return new Intl.NumberFormat('en-US').format(num);
         }
@@ -31,8 +29,7 @@ export const Logic = {
             line = line.trim();
             if (!line) return;
 
-            // 1. Clean the line: Remove T=..., Total=... and comments
-            // Explains: "25 - 2500R2000 T=4500" becomes "25 - 2500R2000"
+            // Clean comments like T=... or Total=...
             let cleanLine = line.replace(/T\s*=\s*[\d,]+/ig, '')
                                 .replace(/Total\s*=\s*[\d,]+/ig, '')
                                 .trim();
@@ -40,13 +37,13 @@ export const Logic = {
             let result = null;
 
             try {
-                // --- A. Named Sets (Power, NatKhat, Padeythar etc.) ---
-                // Matches: "ပါဝါ 100", "Power - 100"
+                // 1. Named Sets (Power, NatKhat, etc.)
                 for (const [key, count] of Object.entries(SET_COUNTS)) {
-                    const regex = new RegExp(`^${key}\s*[-]?\s*([\d,]+)`, 'i');
+                    // Match "Power - 100" or "Power 100" anywhere
+                    const regex = new RegExp(`(${key})\s*[-]?\s*([\d,]+)`, 'i');
                     const match = cleanLine.match(regex);
                     if (match) {
-                        const amount = parseAmount(match[1]);
+                        const amount = parseAmount(match[2]);
                         result = { 
                             description: key, 
                             calculation: `${count} x ${amount}`, 
@@ -56,13 +53,13 @@ export const Logic = {
                     }
                 }
 
-                // --- B. Brake (ဘရိတ်) ---
-                // Matches: "1 B 100", "2/7/4 B 100"
+                // 2. Brake (B) - Allows slash, dot, comma, space (e.g. 2/7/4 or 2 7 4)
                 if (!result) {
-                    let match = cleanLine.match(/^([\d\/]+)\s*(?:B|b|ဘရိတ်)\s*[-]?\s*([\d,]+)/);
+                    let match = cleanLine.match(/([\d\/\.\,\s]+)\s*(?:B|b|ဘရိတ်)\s*[-]?\s*([\d,]+)/);
                     if (match) {
-                        const brakes = match[1].split('/').filter(s => s.trim() !== '');
-                        const brakeCount = brakes.length; // Each brake has 10 numbers
+                        // Split by separators to count brakes
+                        const brakes = match[1].split(/[\/\.\,\s]/).filter(s => s.trim() !== '');
+                        const brakeCount = brakes.length;
                         const amount = parseAmount(match[2]);
                         const totalNums = brakeCount * 10;
                         
@@ -74,21 +71,18 @@ export const Logic = {
                     }
                 }
 
-                // --- C. Round (ပတ်) ---
-                // Matches: "1 P 100", "1 ပတ် 100"
+                // 3. Round (P/Pat)
                 if (!result) {
-                    let match = cleanLine.match(/^(\d)\s*(?:P|p|ပတ်)\s*[-]?\s*([\d,]+)/);
+                    let match = cleanLine.match(/(\d)\s*(?:P|p|ပတ်)\s*[-]?\s*([\d,]+)/);
                     if (match) {
                         const amount = parseAmount(match[2]);
-                        // Round always has 19 numbers
                         result = { description: `${match[1]} Round`, calculation: `19 x ${amount}`, totalAmt: 19 * amount };
                     }
                 }
 
-                // --- D. Head/Tail (ထိပ်/နောက်) ---
-                // Matches: "1 H 100", "1 ထိပ် 100", "1 နောက် 100"
+                // 4. Head/Tail (ထိပ်/နောက်)
                 if (!result) {
-                    let match = cleanLine.match(/^(\d)\s*(ထိပ်|နောက်|Head|Tail|H|T)\s*[-]?\s*([\d,]+)/i);
+                    let match = cleanLine.match(/(\d)\s*(ထိပ်|နောက်|Head|Tail|H|T)\s*[-]?\s*([\d,]+)/i);
                     if (match) {
                         const typeKeyword = match[2].toLowerCase();
                         const type = (typeKeyword.includes('ထိပ်') || typeKeyword.includes('head') || typeKeyword === 'h') ? 'Head' : 'Tail';
@@ -97,18 +91,15 @@ export const Logic = {
                     }
                 }
 
-                // --- E. Khway (ခွေ) with Apu Logic ---
-                // Matches: "012 အပူးခွေ 100", "01234 Khway 100"
+                // 5. Khway (ခွေ)
                 if (!result) {
-                    let match = cleanLine.match(/^(\d+)\s*(.*)(?:ခွေ|Khway)\s*[-]?\s*([\d,]+)/i);
+                    let match = cleanLine.match(/(\d+)\s*(.*)(?:ခွေ|Khway)\s*[-]?\s*([\d,]+)/i);
                     if (match) {
                         const digits = match[1];
                         const amount = parseAmount(match[3]);
+                        const context = match[2];
                         
-                        // User logic: N * N (Includes doubles)
-                        // 012 = 3*3 = 9
-                        // 0123 = 4*4 = 16
-                        // 01234 = 5*5 = 25
+                        // Default to N*N logic (Apu Khway) as per your example "01234 အပူးခွေ"
                         const count = digits.length * digits.length;
 
                         result = { 
@@ -119,10 +110,10 @@ export const Logic = {
                     }
                 }
 
-                // --- F. Direct & Reverse with R (Specific Amounts) ---
-                // Matches: "25 - 2500R2000" or "25 2500 R 2000"
+                // 6. Direct & Reverse with R (Specific Amounts like 2500R2000)
                 if (!result) {
-                    let match = cleanLine.match(/^(\d{2})\s*[-]?\s*([\d,]+)\s*R\s*([\d,]+)/i);
+                    // This regex allows no space between Amount and R
+                    let match = cleanLine.match(/(\d{2})\s*[-]?\s*([\d,]+)\s*R\s*([\d,]+)/i);
                     if (match) {
                         let num = match[1];
                         let directAmt = parseAmount(match[2]);
@@ -132,7 +123,6 @@ export const Logic = {
                         let desc = num;
                         let calc = `${directAmt}`;
 
-                        // Only add reverse cost if it's not a double (e.g., 25 has reverse 52. 22 has no reverse)
                         if (num[0] !== num[1]) {
                             total += reverseAmt;
                             desc += ' + R';
@@ -143,20 +133,19 @@ export const Logic = {
                     }
                 }
 
-                // --- G. List with R (Group Betting) ---
-                // Matches: "79 91 95 71 75 R 1000"
+                // 7. List with R at end (e.g. 79 91... R 1000)
                 if (!result && /R\s*[\d,]+$/.test(cleanLine)) {
                      let match = cleanLine.match(/^(.*)\s+R\s*([\d,]+)$/i);
                      if (match) {
                          const numsPart = match[1];
                          const amount = parseAmount(match[2]);
-                         const nums = numsPart.match(/\d{2}/g); // Find all 2-digit numbers
+                         const nums = numsPart.match(/\d{2}/g);
                          
                          if (nums && nums.length > 0) {
                              let totalCount = 0;
                              nums.forEach(n => {
-                                 if (n[0] === n[1]) totalCount += 1; // Double = 1x
-                                 else totalCount += 2; // Non-double = 2x (Direct + Reverse)
+                                 if (n[0] === n[1]) totalCount += 1;
+                                 else totalCount += 2;
                              });
                              
                              result = { 
@@ -168,9 +157,9 @@ export const Logic = {
                      }
                 }
 
-                // --- H. Simple Direct List (Standard) ---
-                // Matches: "12 - 100", "12 34 56 100"
+                // 8. Simple Direct List (Standard)
                 if (!result) {
+                    // Matches list of numbers followed by amount
                     let match = cleanLine.match(/^([\d\s\.\/]+)\s*[-]?\s*([\d,]+)$/);
                     if (match) {
                         const nums = match[1].match(/\d{2}/g);
@@ -203,7 +192,7 @@ export const Logic = {
         return outputText;
     },
 
-    // --- 3D Logic (Preserved) ---
+    // --- 3D Logic (No Changes) ---
     calculate3D(rawText) {
         const lines = rawText.split(/\n/);
         let totalAmount = 0;
@@ -273,7 +262,7 @@ export const Logic = {
         return responseText;
     },
 
-    // --- Report Logic (Preserved) ---
+    // --- Report Logic (No Changes) ---
     calculateReport(inputText, commissionRate = 13) {
         const lines = inputText.split(/\r?\n/);
         let bets = new Array(10).fill(0);
